@@ -10,7 +10,16 @@ Complete training + inference pipeline for the Deep Past Akkadian-to-English tra
 !git clone https://github.com/2023202750arnav-design/akkadian-training.git /content/scripts
 ```
 
-2. Run cells in order:
+2. Run cells in order — choose either run mode below:
+
+### Mode 1: 2 cells (recommended — data + train + inference in one cell)
+
+```
+%run /content/scripts/v20/cell1_setup.py
+%run /content/scripts/v20/cell234_full.py
+```
+
+### Mode 2: 4 cells (step-by-step, easier to resume)
 
 ```
 %run /content/scripts/v20/cell1_setup.py
