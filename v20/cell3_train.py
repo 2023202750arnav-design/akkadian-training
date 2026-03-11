@@ -1,4 +1,5 @@
 # ============ CALLBACKS ============
+import inspect
 
 class EMACallback(TrainerCallback):
     def __init__(self, mdl, decay=0.999):
@@ -142,9 +143,12 @@ print("Tokenizer OK: " + type(tok).__name__)
 
 mdl = AutoModelForSeq2SeqLM.from_pretrained(load_path, low_cpu_mem_usage=True).to(DV)
 print("Params: " + str(sum(p.numel() for p in mdl.parameters())))
-mdl.gradient_checkpointing_enable(
-    gradient_checkpointing_kwargs={"use_reentrant": True}
-)
+try:
+    mdl.gradient_checkpointing_enable(
+        gradient_checkpointing_kwargs={"use_reentrant": True}
+    )
+except TypeError:
+    mdl.gradient_checkpointing_enable()
 mdl.config.use_cache = False
 print("Model loaded. GPU free: " + str(round(gfr(), 1)) + "GB")
 
@@ -199,6 +203,9 @@ print("Starting training...")
 scorer = ScoreTracker(val, tok, DV, n=50)
 ema_cb = None
 
+_trainer_sig = inspect.signature(Seq2SeqTrainer.__init__).parameters
+_use_processing_class = "processing_class" in _trainer_sig
+
 def make_args(sub, ep, lr, warm, smooth, save_steps=None):
     d = dict(
         output_dir=O + "/" + sub,
@@ -214,7 +221,6 @@ def make_args(sub, ep, lr, warm, smooth, save_steps=None):
         fp16=True,
         bf16=False,
         gradient_checkpointing=True,
-        gradient_checkpointing_kwargs={"use_reentrant": True},
         label_smoothing_factor=smooth,
         predict_with_generate=False,
         dataloader_num_workers=2,
@@ -226,21 +232,40 @@ def make_args(sub, ep, lr, warm, smooth, save_steps=None):
         metric_for_best_model="eval_loss",
         greater_is_better=False,
     )
-    if save_steps:
+    try:
+        d["gradient_checkpointing_kwargs"] = {"use_reentrant": True}
+        if save_steps:
+            return Seq2SeqTrainingArguments(
+                **d,
+                eval_strategy="steps",
+                eval_steps=save_steps,
+                save_strategy="steps",
+                save_steps=save_steps,
+                save_total_limit=5,
+            )
         return Seq2SeqTrainingArguments(
             **d,
-            eval_strategy="steps",
-            eval_steps=save_steps,
-            save_strategy="steps",
-            save_steps=save_steps,
+            eval_strategy="epoch",
+            save_strategy="epoch",
             save_total_limit=5,
         )
-    return Seq2SeqTrainingArguments(
-        **d,
-        eval_strategy="epoch",
-        save_strategy="epoch",
-        save_total_limit=5,
-    )
+    except TypeError:
+        d.pop("gradient_checkpointing_kwargs", None)
+        if save_steps:
+            return Seq2SeqTrainingArguments(
+                **d,
+                eval_strategy="steps",
+                eval_steps=save_steps,
+                save_strategy="steps",
+                save_steps=save_steps,
+                save_total_limit=5,
+            )
+        return Seq2SeqTrainingArguments(
+            **d,
+            eval_strategy="epoch",
+            save_strategy="epoch",
+            save_total_limit=5,
+        )
 
 def run_phase(label, ds, ep, lr, warm, smooth, sub, save_steps=None, use_ema=False):
     global ema_cb
@@ -262,28 +287,19 @@ def run_phase(label, ds, ep, lr, warm, smooth, sub, save_steps=None, use_ema=Fal
         ema_cb = EMACallback(mdl, decay=0.999)
         cbs.append(ema_cb)
         print("EMA: ON")
-    import inspect
-    _trainer_params = inspect.signature(Seq2SeqTrainer.__init__).parameters
-    if "processing_class" in _trainer_params:
-        trainer = Seq2SeqTrainer(
-            model=mdl,
-            args=make_args(sub, ep, lr, warm, smooth, save_steps),
-            train_dataset=ds,
-            eval_dataset=vt,
-            processing_class=tok,
-            data_collator=coll,
-            callbacks=cbs,
-        )
+    trainer_kwargs = dict(
+        model=mdl,
+        args=make_args(sub, ep, lr, warm, smooth, save_steps),
+        train_dataset=ds,
+        eval_dataset=vt,
+        data_collator=coll,
+        callbacks=cbs,
+    )
+    if _use_processing_class:
+        trainer_kwargs["processing_class"] = tok
     else:
-        trainer = Seq2SeqTrainer(
-            model=mdl,
-            args=make_args(sub, ep, lr, warm, smooth, save_steps),
-            train_dataset=ds,
-            eval_dataset=vt,
-            tokenizer=tok,
-            data_collator=coll,
-            callbacks=cbs,
-        )
+        trainer_kwargs["tokenizer"] = tok
+    trainer = Seq2SeqTrainer(**trainer_kwargs)
     trainer.train()
     save_path = O + "/after_" + sub
     mdl.save_pretrained(save_path)
