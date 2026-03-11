@@ -142,9 +142,12 @@ print("Tokenizer OK: " + type(tok).__name__)
 
 mdl = AutoModelForSeq2SeqLM.from_pretrained(load_path, low_cpu_mem_usage=True).to(DV)
 print("Params: " + str(sum(p.numel() for p in mdl.parameters())))
-mdl.gradient_checkpointing_enable(
-    gradient_checkpointing_kwargs={"use_reentrant": True}
-)
+try:
+    mdl.gradient_checkpointing_enable(
+        gradient_checkpointing_kwargs={"use_reentrant": True}
+    )
+except TypeError:
+    mdl.gradient_checkpointing_enable()
 mdl.config.use_cache = False
 print("Model loaded. GPU free: " + str(round(gfr(), 1)) + "GB")
 
@@ -214,7 +217,6 @@ def make_args(sub, ep, lr, warm, smooth, save_steps=None):
         fp16=True,
         bf16=False,
         gradient_checkpointing=True,
-        gradient_checkpointing_kwargs={"use_reentrant": True},
         label_smoothing_factor=smooth,
         predict_with_generate=False,
         dataloader_num_workers=2,
@@ -227,20 +229,27 @@ def make_args(sub, ep, lr, warm, smooth, save_steps=None):
         greater_is_better=False,
     )
     if save_steps:
-        return Seq2SeqTrainingArguments(
-            **d,
+        extra = dict(
             eval_strategy="steps",
             eval_steps=save_steps,
             save_strategy="steps",
             save_steps=save_steps,
             save_total_limit=5,
         )
-    return Seq2SeqTrainingArguments(
-        **d,
-        eval_strategy="epoch",
-        save_strategy="epoch",
-        save_total_limit=5,
-    )
+    else:
+        extra = dict(
+            eval_strategy="epoch",
+            save_strategy="epoch",
+            save_total_limit=5,
+        )
+    try:
+        return Seq2SeqTrainingArguments(
+            **d,
+            gradient_checkpointing_kwargs={"use_reentrant": True},
+            **extra,
+        )
+    except TypeError:
+        return Seq2SeqTrainingArguments(**d, **extra)
 
 def run_phase(label, ds, ep, lr, warm, smooth, sub, save_steps=None, use_ema=False):
     global ema_cb
