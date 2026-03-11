@@ -40,7 +40,7 @@ GP = torch.cuda.get_device_properties(0)
 
 def get_vram():
     g = torch.cuda.get_device_properties(0)
-    return g.total_memory if hasattr(g, "total_memory") else g.total_mem
+    return g.total_memory if hasattr(g, "total_memory") else getattr(g, "total_mem", 0)
 
 assert get_vram() > 14e9, "Need 15GB+"
 assert os.path.isfile(MP + "/config.json"), "Model missing: " + MP
