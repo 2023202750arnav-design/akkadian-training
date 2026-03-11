@@ -7,8 +7,13 @@ for p in ["transformers", "datasets", "sacrebleu", "sentencepiece"]:
 
 import transformers, torch
 print("transformers=" + transformers.__version__ + " torch=" + torch.__version__)
+
+def get_vram():
+    g = torch.cuda.get_device_properties(0)
+    return g.total_memory if hasattr(g, "total_memory") else g.total_mem
+
 if torch.cuda.is_available():
     g = torch.cuda.get_device_properties(0)
-    print("GPU=" + g.name + " VRAM=" + str(round(g.total_mem / 1e9, 1)) + "GB")
+    print("GPU=" + g.name + " VRAM=" + str(round(get_vram() / 1e9, 1)) + "GB")
 else:
     print("NO GPU - set Runtime to T4")

@@ -37,14 +37,19 @@ DV = "cuda"
 # ============ CHECKS ============
 assert torch.cuda.is_available(), "No GPU"
 GP = torch.cuda.get_device_properties(0)
-assert GP.total_mem > 14e9, "Need 15GB+"
+
+def get_vram():
+    g = torch.cuda.get_device_properties(0)
+    return g.total_memory if hasattr(g, "total_memory") else g.total_mem
+
+assert get_vram() > 14e9, "Need 15GB+"
 assert os.path.isfile(MP + "/config.json"), "Model missing: " + MP
 TP = MP
 if not os.path.isfile(TP + "/tokenizer_config.json"):
     TP = B + "/models/byt5-akkadian-model_final"
 assert os.path.isfile(DD + "/train.csv"), "train.csv missing"
 assert os.path.isfile(DD + "/test.csv"), "test.csv missing"
-print("GPU=" + GP.name + " VRAM=" + str(round(GP.total_mem / 1e9, 1)) + "GB")
+print("GPU=" + GP.name + " VRAM=" + str(round(get_vram() / 1e9, 1)) + "GB")
 
 # ============ HELPERS ============
 def fr():
@@ -54,10 +59,10 @@ def fr():
         torch.cuda.synchronize()
 
 def gfr():
-    return (GP.total_mem - torch.cuda.memory_allocated(0)) / 1e9
+    return (get_vram() - torch.cuda.memory_allocated(0)) / 1e9
 
 _TR = str.maketrans(
-    "\u0101\u0113\u012b\u016b\u0100\u0112\u012a\u016a\u00e1\u00e9\u00ed\u00fa\u00e0\u00e8\u00ec\u00f9\u00c1\u00c9\u00cd\u00da\u00c0\u00c8\u00cc\u00d9\u0161\u0160\u1e63\u1e62\u1e6d\u1e6c\u1e2b\u1eaa",
+    "\u0101\u0113\u012b\u016b\u0100\u0112\u012a\u016a\u00e1\u00e9\u00ed\u00fa\u00e0\u00e8\u00ec\u00f9\u00c1\u00c9\u00cd\u00da\u00c0\u00c8\u00cc\u00d9\u0161\u0160\u1e63\u1e62\u1e6d\u1e6c\u1e2b\u1e2a",
     "aeiuAEIUaeiuaeiuAEIUAEIUsSsStThH")
 
 def nk(t):
@@ -85,7 +90,7 @@ DM["\u1e62"] = "S"
 DM["\u1e6d"] = "t"
 DM["\u1e6c"] = "T"
 DM["\u1e2b"] = "h"
-DM["\u1eaa"] = "H"
+DM["\u1e2a"] = "H"
 DM["\u02be"] = "'"
 DM["\u02bf"] = "'"
 
