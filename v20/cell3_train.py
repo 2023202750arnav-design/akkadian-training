@@ -159,7 +159,7 @@ def tok_fn(ex):
         padding=False,
     )
     lab = tok(
-        text_target=[str(t) for t in ex["translation"]],
+        [str(t) for t in ex["translation"]],
         max_length=MT,
         truncation=True,
         padding=False,
@@ -262,15 +262,28 @@ def run_phase(label, ds, ep, lr, warm, smooth, sub, save_steps=None, use_ema=Fal
         ema_cb = EMACallback(mdl, decay=0.999)
         cbs.append(ema_cb)
         print("EMA: ON")
-    trainer = Seq2SeqTrainer(
-        model=mdl,
-        args=make_args(sub, ep, lr, warm, smooth, save_steps),
-        train_dataset=ds,
-        eval_dataset=vt,
-        tokenizer=tok,
-        data_collator=coll,
-        callbacks=cbs,
-    )
+    import inspect
+    _trainer_params = inspect.signature(Seq2SeqTrainer.__init__).parameters
+    if "processing_class" in _trainer_params:
+        trainer = Seq2SeqTrainer(
+            model=mdl,
+            args=make_args(sub, ep, lr, warm, smooth, save_steps),
+            train_dataset=ds,
+            eval_dataset=vt,
+            processing_class=tok,
+            data_collator=coll,
+            callbacks=cbs,
+        )
+    else:
+        trainer = Seq2SeqTrainer(
+            model=mdl,
+            args=make_args(sub, ep, lr, warm, smooth, save_steps),
+            train_dataset=ds,
+            eval_dataset=vt,
+            tokenizer=tok,
+            data_collator=coll,
+            callbacks=cbs,
+        )
     trainer.train()
     save_path = O + "/after_" + sub
     mdl.save_pretrained(save_path)
