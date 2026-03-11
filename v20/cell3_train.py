@@ -142,9 +142,13 @@ print("Tokenizer OK: " + type(tok).__name__)
 
 mdl = AutoModelForSeq2SeqLM.from_pretrained(load_path, low_cpu_mem_usage=True).to(DV)
 print("Params: " + str(sum(p.numel() for p in mdl.parameters())))
-mdl.gradient_checkpointing_enable(
-    gradient_checkpointing_kwargs={"use_reentrant": True}
-)
+# gradient_checkpointing_kwargs added in transformers >=4.34; fall back for older versions
+try:
+    mdl.gradient_checkpointing_enable(
+        gradient_checkpointing_kwargs={"use_reentrant": True}
+    )
+except TypeError:
+    mdl.gradient_checkpointing_enable()
 mdl.config.use_cache = False
 print("Model loaded. GPU free: " + str(round(gfr(), 1)) + "GB")
 
@@ -186,12 +190,16 @@ vt = to_hf(val, "val")
 t1 = to_hf(ph1, "ph1")
 t2 = to_hf(ph2, "ph2") if len(ph2) > 0 else None
 t3 = to_hf(ph3, "ph3")
-coll = DataCollatorForSeq2Seq(
-    tokenizer=tok,
+_coll_kwargs = dict(
     model=mdl,
     label_pad_token_id=-100,
     pad_to_multiple_of=8,
 )
+# processing_class= is the new API (transformers 5.0); fall back to tokenizer= for older versions
+try:
+    coll = DataCollatorForSeq2Seq(processing_class=tok, **_coll_kwargs)
+except TypeError:
+    coll = DataCollatorForSeq2Seq(tokenizer=tok, **_coll_kwargs)
 fr()
 
 # ============ TRAINING ============
@@ -200,7 +208,7 @@ scorer = ScoreTracker(val, tok, DV, n=50)
 ema_cb = None
 
 def make_args(sub, ep, lr, warm, smooth, save_steps=None):
-    d = dict(
+    base = dict(
         output_dir=O + "/" + sub,
         num_train_epochs=ep,
         per_device_train_batch_size=BA,
@@ -214,7 +222,6 @@ def make_args(sub, ep, lr, warm, smooth, save_steps=None):
         fp16=True,
         bf16=False,
         gradient_checkpointing=True,
-        gradient_checkpointing_kwargs={"use_reentrant": True},
         label_smoothing_factor=smooth,
         predict_with_generate=False,
         dataloader_num_workers=2,
@@ -227,20 +234,27 @@ def make_args(sub, ep, lr, warm, smooth, save_steps=None):
         greater_is_better=False,
     )
     if save_steps:
-        return Seq2SeqTrainingArguments(
-            **d,
+        base.update(dict(
             eval_strategy="steps",
             eval_steps=save_steps,
             save_strategy="steps",
             save_steps=save_steps,
             save_total_limit=5,
+        ))
+    else:
+        base.update(dict(
+            eval_strategy="epoch",
+            save_strategy="epoch",
+            save_total_limit=5,
+        ))
+    # gradient_checkpointing_kwargs added in transformers >=4.34; fall back for older versions
+    try:
+        return Seq2SeqTrainingArguments(
+            gradient_checkpointing_kwargs={"use_reentrant": True},
+            **base,
         )
-    return Seq2SeqTrainingArguments(
-        **d,
-        eval_strategy="epoch",
-        save_strategy="epoch",
-        save_total_limit=5,
-    )
+    except TypeError:
+        return Seq2SeqTrainingArguments(**base)
 
 def run_phase(label, ds, ep, lr, warm, smooth, sub, save_steps=None, use_ema=False):
     global ema_cb
